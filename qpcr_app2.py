@@ -288,7 +288,10 @@ def plate_figure(d, color_by, show_text, selected, height=560):
             fig.add_trace(go.Scatter(
                 x=[rc(w)[1] for w in has.index], y=[rc(w)[0] for w in has.index],
                 mode="markers+text" if show_text else "markers", text=text_for(has),
-                textfont=dict(size=8, color="#0b0b0b"),
+                textfont=dict(size=8, color=list(np.where(
+                    (vals - vals.min()) / max(vals.max() - vals.min(), 1e-9) < 0.5,
+                    "#ffffff" if col == "Cq" else "#0b0b0b",
+                    "#0b0b0b" if col == "Cq" else "#ffffff"))),
                 marker=dict(**base_marker, color=vals,
                             colorscale=SEQ_BLUES if col == "Cq" else SEQ_BLUES[::-1],
                             colorbar=dict(title=col, thickness=12, len=0.8)),
@@ -564,8 +567,19 @@ with tab_plate:
         for w, v in d["Cq_eff"].items():
             r, c = rc(w)
             mat.iloc[r, c - 1] = v
-        st.dataframe(mat.style.format("{:.2f}", na_rep="").background_gradient(cmap="Blues_r", axis=None),
-                     use_container_width=True)
+        mat = mat.astype(float)
+        lo, hi = np.nanmin(mat.values) if mat.notna().any().any() else 0, np.nanmax(mat.values) if mat.notna().any().any() else 1
+
+        def _cell_color(v):  # eigene Farbskala, ohne matplotlib
+            if pd.isna(v):
+                return ""
+            t = 0.0 if hi == lo else (v - lo) / (hi - lo)  # 0 = niedriger Cq (dunkel)
+            c0, c1 = np.array([13, 54, 107]), np.array([205, 226, 251])
+            r, g, b = (c0 + (c1 - c0) * t).astype(int)
+            return f"background-color: rgb({r},{g},{b}); color: {'#ffffff' if t < 0.5 else '#0b0b0b'}"
+
+        disp = mat.map(lambda v: "" if pd.isna(v) else f"{v:.2f}")  # Text-Matrix: leere Zellen statt "None"
+        st.dataframe(disp.style.apply(lambda _: mat.map(_cell_color), axis=None), use_container_width=True)
 
 # --------------------------------------------------------------------------------------
 with tab_label:
@@ -799,4 +813,5 @@ with tab_res:
                        data=to_excel({"Wells": wells_out, "Replikate": summ,
                                       "ddCq_je_Probe": per, "ddCq_Zusammenfassung": fcs}),
                        file_name=f"qPCR_Auswertung_{up.name.rsplit('.', 1)[0]}.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
